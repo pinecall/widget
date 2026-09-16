@@ -2,8 +2,9 @@
 //
 // One floating button opens up to three ways to reach the agent: the phone number with the
 // call's live log, a voice call from the browser, and a chat. The page needs this file and one or
-// two endpoints on its own server (server/php or server/laravel here). The API key never leaves
-// that server, and the same two endpoints serve every agent of the org: the tag says which.
+// two endpoints on its own server, which mint the visit token and relay the call log with the
+// org's API key (the README says their shape). The key never leaves that server, and the same two
+// endpoints serve every agent of the org: the tag says which.
 //
 //   <script type="module" src="/pinecall/pinecall-widget.js"></script>
 //   <pinecall-widget agent="bidfire-sales" name="Sam" company="BidFire"

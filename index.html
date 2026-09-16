@@ -4,17 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pinecall widget</title>
-  <style>
-    body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #fff; }
-    /* Two agents on one page: the second button sits on the left, in the same look. */
-  </style>
+  <style>body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #fff; }</style>
 </head>
 <body>
+  <!-- Point token-url and log-url at your own endpoints: README.md, "Your two endpoints". -->
   <script type="module" src="./pinecall-widget.js"></script>
-  <pinecall-widget agent="bidfire-sales" name="Sam" company="BidFire" tagline="answers about the software"
-                   token-url="./server/php/token.php" log-url="./server/php/log.php"></pinecall-widget>
-  <pinecall-widget agent="bidfire-dispatch" name="Ava" company="BidFire" tagline="books your technician"
-                   phone="+1 (417) 674-3169" position="bottom-left"
-                   token-url="./server/php/token.php" log-url="./server/php/log.php"></pinecall-widget>
+  <pinecall-widget agent="your-agent" name="Assistant" token-url="/pinecall/token" log-url="/pinecall/log"></pinecall-widget>
 </body>
 </html>

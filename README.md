@@ -2,57 +2,23 @@
 
 One Pinecall agent as one button on any page. The button opens up to three ways to reach the
 agent: the phone number with the call's live log, a voice call from the browser, and a chat. It
-is a web component: one JavaScript file and one or two endpoints on your own server. The API key
-lives on that server and never reaches the browser. The same two endpoints serve every agent of
-your org; the tag says which one.
-
-```
-pinecall-widget.js              the button; one <script type="module"> tag
-index.html                      a page with two agents on it, to open and try
-server/
-  php/token.php                 mints visit tokens, plain PHP
-  php/log.php                   the call log for the page, plain PHP (optional)
-  laravel/PinecallTokenController.php   the same two, as Laravel controllers
-  laravel/PinecallLogController.php
-```
-
-## 1. The endpoint (2 minutes)
-
-The widget asks **your** server for a visit token; your server asks Pinecall with the API key.
-
-**Laravel.** Copy the two controllers from `server/laravel/` into `app/Http/Controllers/`, add
-the routes and the variables:
-
-```php
-// routes/web.php
-Route::post('/pinecall/token', [\App\Http\Controllers\PinecallTokenController::class, 'mint'])
-    ->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class]);
-Route::get('/pinecall/log', [\App\Http\Controllers\PinecallLogController::class, 'read']);
-```
-
-```dotenv
-PINECALL_URL=https://box.pinecall.io
-PINECALL_API_KEY=pk_live_…                        # a key with the talk, calls scopes
-PINECALL_AGENTS=bidfire-dispatch,bidfire-sales    # which agents this site serves; empty = every one
-```
-
-**Plain PHP.** Copy `server/php/` next to your page and set the same three variables in the
-environment (or edit the top of each file). `log.php` holds one PHP worker per open panel:
-with `php -S`, start it with `PHP_CLI_SERVER_WORKERS=32`.
-
-## 2. The tag (1 minute)
+is a web component: one JavaScript file, no build step, no framework — it works in plain HTML,
+React, Vue, Svelte, Laravel Blade or anything else that renders a tag. The same file serves every
+agent of your org; the tag says which.
 
 ```html
-<script type="module" src="/pinecall/pinecall-widget.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/pinecall/widget@main/pinecall-widget.js"></script>
 <pinecall-widget agent="bidfire-sales" name="Sam" company="BidFire"
                  token-url="/pinecall/token" log-url="/pinecall/log"></pinecall-widget>
 ```
 
+## The tag
+
 | attribute | | |
 |---|---|---|
 | `agent` | required | the agent's slug, as `pinecall run` prints it |
-| `token-url` | required | your token endpoint |
-| `log-url` | optional | your log endpoint: conversations drawn from the call's own log, the telephone call live, a "show tools" toggle |
+| `token-url` | required | your token endpoint (below) |
+| `log-url` | optional | your log endpoint (below): conversations drawn from the call's own log, the telephone call live, a "show tools" toggle |
 | `phone` | optional | the number the agent answers; without it "Call us" is hidden |
 | `name` | optional | what the agent is called on screen |
 | `company` | optional | whose agent it is |
@@ -62,7 +28,28 @@ with `php -S`, start it with `PHP_CLI_SERVER_WORKERS=32`.
 
 Two agents on one page are two tags, each at its own position.
 
-## 3. The look
+## Your two endpoints
+
+The widget never holds the org's API key. Your server does, and exposes two doors; the widget
+calls them with the agent named on the tag.
+
+**`token-url` — `POST`, JSON `{ "agent": "<slug>", "scope": "talk" | "chat" }`.** Your server
+posts to Pinecall's `POST /v1/tokens` with `Authorization: Bearer <key>` and the body
+`{ "agent", "scope", "ttl_s": 60, "metadata": {…} }`, and answers with Pinecall's JSON as it came
+(`server_url`, `participant_token`, `call`), status and all. Refuse an `agent` your site does not
+serve. The key needs the `talk` scope.
+
+**`log-url` — `GET`, optional.** Two queries, both with `?agent=<slug>`:
+- `&list=1` answers `{ "calls": [ { "call", "live", "from", "started_at" } ] }` — the agent's latest
+  telephone calls, from `GET /v1/agents/<agent>/sessions?limit=30`, keeping only `channel ==
+  "phone"` and cutting `from` to its last three digits (the page is public).
+- `&call=<id>` relays `GET /v1/calls/<id>/events?types=call.started,user.transcript,agent.transcript,turn.user,turn.agent,tool.call,tool.result,call.ended&after=0`
+  as `text/event-stream`, byte for byte, with buffering off. The key needs the `calls` scope.
+
+Ready-made endpoints for plain PHP and for Laravel live with the BidFire agents:
+https://github.com/cloudacio/bidfire-agents/tree/main/plugin/server.
+
+## The look
 
 The font is inherited from the page. Everything else is a custom property on the tag:
 
@@ -83,15 +70,46 @@ pinecall-widget::part(button) { border-radius: 8px; }   /* the button, outright 
 pinecall-widget::part(panel) { box-shadow: none; }
 ```
 
-## 4. Events
+## Events
 
 The tag dispatches `pinecall:open`, `pinecall:started` (`detail: {call, scope}`) and
 `pinecall:ended` (`detail: {call}`), so a page can track conversions or open the widget itself
 (`document.querySelector("pinecall-widget").toggle()`).
 
+## In React, Vue, Svelte
+
+A custom element is an element: render the tag and it works.
+
+```jsx
+// React — import the module once, then the tag. Attributes are strings.
+import "https://cdn.jsdelivr.net/gh/pinecall/widget@main/pinecall-widget.js";
+
+export function Support() {
+  return <pinecall-widget agent="bidfire-sales" name="Sam" token-url="/pinecall/token" log-url="/pinecall/log" />;
+}
+```
+
+```vue
+<script setup>
+import "https://cdn.jsdelivr.net/gh/pinecall/widget@main/pinecall-widget.js";
+</script>
+<template>
+  <pinecall-widget agent="bidfire-sales" name="Sam" token-url="/pinecall/token" log-url="/pinecall/log" />
+</template>
+```
+
+In TypeScript, declare the tag once: `declare global { namespace JSX { interface IntrinsicElements
+{ "pinecall-widget": any } } }`.
+
 ## What is on the wire
 
 The browser talks to LiveKit with LiveKit's own client SDK, loaded from a CDN. The token your
 endpoint mints is one visit's: it opens one room for one agent and dies in sixty seconds if it is
-not used. The log endpoint relays `GET /v1/agents/<agent>/sessions` (cut to the caller's last
-three digits: the page is public) and `GET /v1/calls/<call>/events` as server-sent events.
+not used.
+
+## Next
+
+- Wrappers with typed props and slots for React and Vue, so the chat's bubbles, header and
+  composer can be replaced with your own components rather than only restyled.
+- A headless core (`open`, `send`, `leave`, the transcript as events) for a page that draws its
+  own UI entirely.
