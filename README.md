@@ -39,6 +39,10 @@ posts to Pinecall's `POST /v1/tokens` with `Authorization: Bearer <key>` and the
 (`server_url`, `participant_token`, `call`), status and all. Refuse an `agent` your site does not
 serve. The key needs the `talk` scope.
 
+Or no endpoint at all: set the element's `tokenProvider` property to a function
+`(scope, agent) => Promise<token JSON>` and the widget asks it instead — for an app that already
+holds a way to mint, or a page that holds a person's key (the Pinecall console's preview does).
+
 **`log-url` — `GET`, optional.** Two queries, both with `?agent=<slug>`:
 - `&list=1` answers `{ "calls": [ { "call", "live", "from", "started_at" } ] }` — the agent's latest
   telephone calls, from `GET /v1/agents/<agent>/sessions?limit=30`, keeping only `channel ==

@@ -12,7 +12,8 @@
 //
 // Attributes:
 //   agent       required · the agent's slug, as `pinecall run` prints it
-//   token-url   required · mints visit tokens (POST {agent, scope}) — yours
+//   token-url   required · mints visit tokens (POST {agent, scope}) — yours. Or set the element's
+//               `tokenProvider` property to a function (scope, agent) => Promise<token JSON>
 //   log-url     optional · lists the phone calls and relays a call's log (GET ?agent=&list=1,
 //               GET ?agent=&call=) — yours. With it, every conversation is drawn from the call's
 //               own log in the order it happened, "Call us" shows the telephone call as it
@@ -470,6 +471,10 @@ class PinecallWidget extends HTMLElement {
   // ── the room ──────────────────────────────────────────────────────────────────
 
   async token(scope) {
+    // A page that mints its own tokens — an app with the org's key on its server side already
+    // wired, or a console holding a person's key — sets `tokenProvider`, a function of the scope
+    // that resolves to the token door's JSON, and no token-url is needed.
+    if (typeof this.tokenProvider === "function") return this.tokenProvider(scope, this.agent);
     const url = this.getAttribute("token-url");
     if (!url) throw new Error("pinecall-widget: token-url is missing");
     if (!this.agent) throw new Error("pinecall-widget: agent is missing");
