@@ -6,8 +6,12 @@ is a web component: one JavaScript file, no build step, no framework — it work
 React, Vue, Svelte, Laravel Blade or anything else that renders a tag. The same file serves every
 agent of your org; the tag says which.
 
+Your gateway serves it: `https://<gateway>/widget/pinecall-widget.js` (`box.pinecall.io` on
+Pinecall's box). jsDelivr serves this repository too, at
+`https://cdn.jsdelivr.net/gh/pinecall/widget@main/pinecall-widget.js`.
+
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/pinecall/widget@main/pinecall-widget.js"></script>
+<script type="module" src="https://box.pinecall.io/widget/pinecall-widget.js"></script>
 <pinecall-widget agent="bidfire-sales" name="Sam" company="BidFire"
                  token-url="/pinecall/token" log-url="/pinecall/log"></pinecall-widget>
 ```
@@ -86,7 +90,7 @@ A custom element is an element: render the tag and it works.
 
 ```jsx
 // React — import the module once, then the tag. Attributes are strings.
-import "https://cdn.jsdelivr.net/gh/pinecall/widget@main/pinecall-widget.js";
+import "https://box.pinecall.io/widget/pinecall-widget.js";
 
 export function Support() {
   return <pinecall-widget agent="bidfire-sales" name="Sam" token-url="/pinecall/token" log-url="/pinecall/log" />;
@@ -95,7 +99,7 @@ export function Support() {
 
 ```vue
 <script setup>
-import "https://cdn.jsdelivr.net/gh/pinecall/widget@main/pinecall-widget.js";
+import "https://box.pinecall.io/widget/pinecall-widget.js";
 </script>
 <template>
   <pinecall-widget agent="bidfire-sales" name="Sam" token-url="/pinecall/token" log-url="/pinecall/log" />
