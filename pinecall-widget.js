@@ -144,6 +144,7 @@ class Transcript {
     this.stream = null;
     this.lines = new Map();
     this.hearing = null;
+    this.seen = 0;
     this.onAgent = null;
     this.onEnd = null;
   }
@@ -154,9 +155,24 @@ class Transcript {
       this.list.replaceChildren();
       this.lines.clear();
       this.hearing = null;
+      this.seen = 0;
     }
     const stream = new EventSource(url);
     this.stream = stream;
+    // A stream opened again after a drop replays the log from its start: a new EventSource carries
+    // no Last-Event-ID. Every entry carries its seq, so what was already drawn is told by number
+    // and skipped — without this a reconnect wrote every caller turn and every tool a second time.
+    const on = (type, draw) =>
+      stream.addEventListener(type, (event) => {
+        // Read off the entry itself and not `lastEventId`, which an event with no id of its own
+        // inherits from the one before it.
+        const seq = JSON.parse(event.data).seq;
+        if (typeof seq === "number") {
+          if (seq <= this.seen) return;
+          this.seen = seq;
+        }
+        draw(event);
+      });
     const data = (event) => JSON.parse(event.data).data ?? {};
     stream.onerror = () => {
       if (stream.readyState !== EventSource.CLOSED) return;
@@ -165,38 +181,38 @@ class Transcript {
     };
     // The recogniser's last word on the turn (`final`) is the moment the line settles: the turn
     // itself is written after the end-of-utterance wait, and the agent is already thinking by then.
-    stream.addEventListener("user.transcript", (event) => {
+    on("user.transcript", (event) => {
       const heard = data(event);
       if (!this.hearing) this.hearing = this.line("user interim", "");
       this.hearing.textContent = heard.text ?? "";
       if (heard.final) this.hearing.className = "user";
       this.scroll();
     });
-    stream.addEventListener("turn.user", (event) => {
+    on("turn.user", (event) => {
       const item = this.hearing ?? this.line("user", "");
       item.className = "user";
       item.textContent = data(event).text ?? "";
       this.hearing = null;
     });
-    stream.addEventListener("agent.transcript", (event) => {
+    on("agent.transcript", (event) => {
       const word = data(event);
       this.spoken(`speech_${word.speech_id}`, word.text ?? "", word.start);
       this.onAgent?.();
     });
-    stream.addEventListener("turn.agent", (event) => {
+    on("turn.agent", (event) => {
       const turn = data(event);
       this.said(`speech_${turn.speech_id}`, turn.text ?? "", true);
       this.onAgent?.();
     });
-    stream.addEventListener("tool.call", (event) => {
+    on("tool.call", (event) => {
       const tool = data(event);
       this.mark(`→ ${tool.name}(${JSON.stringify(tool.arguments ?? {})})`);
     });
-    stream.addEventListener("tool.result", (event) => {
+    on("tool.result", (event) => {
       const result = data(event);
       this.mark(`← ${result.name}: ${result.error ?? JSON.stringify(result.output ?? "").slice(0, 120)}`);
     });
-    stream.addEventListener("call.ended", (event) => {
+    on("call.ended", (event) => {
       this.mark(`— ended: ${data(event).reason ?? ""}`, true);
       this.stop();
       this.onEnd?.();
