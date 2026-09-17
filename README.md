@@ -31,6 +31,12 @@ Pinecall's box). jsDelivr serves this repository too, at
 | `tagline` | optional | the line under the name, after the company |
 | `label` | optional | the button's text, `Talk to <name>` when left out |
 | `position` | optional | `bottom-right` (default), `bottom-left`, `top-right`, `top-left`, or `inline`: the button right where the tag is, in the page's own flow |
+| `greeting` | optional | the first line the widget shows, before any call starts: drawn as the agent's bubble above the ways to reach it, and above the conversation until the call is up. Plain text — markup in it is shown, never rendered |
+| `autostart` | optional | open straight into a voice call: the click that opens the panel asks for the microphone and starts the call, with no second click. Refused, the menu opens with the reason and chat is one click away. A browser that has not yet allowed sound shows a "Tap to hear the agent" button. `autostart="false"` is off |
+
+A gateway keeps these per agent for a console to set and copy into a snippet —
+`GET`/`PUT /v1/agents/{slug}/widget`, `{title, tagline, greeting, accent, autostart}`, where `title`
+is `name` and `accent` is `--pc-accent` — and the widget itself reads only its attributes.
 
 The attributes are read once, when the tag is connected to the page — except `token-url`, which is
 read each time a token is asked for. Two agents on one page are two tags, each at its own position.

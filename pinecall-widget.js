@@ -24,6 +24,10 @@
 //   company     optional · whose agent it is; shown under the name
 //   tagline     optional · the line under the name, "books your technician"
 //   label       optional · the floating button's text, "Talk to <name>"
+//   greeting    optional · the first line the widget shows, before any call starts: plain text,
+//               drawn as the agent's own bubble above the ways to reach it
+//   autostart   optional · open straight into a voice call: the microphone is asked for in the same
+//               click that opens the panel, and the call starts without a second one
 //   position    optional · bottom-right (default), bottom-left, top-right, top-left, or inline:
 //               inline puts the button right where the tag is, in the page's own flow
 //
@@ -123,6 +127,8 @@ const STYLE = `
   .back { border: 0; background: transparent; color: var(--_accent); font: inherit; cursor: pointer; padding: 0; }
   .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--_muted); cursor: pointer; user-select: none; }
   .toggle input { accent-color: var(--_accent); }
+  .greeting { margin: 0; padding: 10px 14px; border-radius: 12px; border-bottom-left-radius: 4px; align-self: flex-start;
+              max-width: 88%; font-size: 14px; background: var(--_soft); white-space: pre-line; }
 `;
 
 const ICONS = {
@@ -323,6 +329,9 @@ class PinecallWidget extends HTMLElement {
     this.tagline = this.getAttribute("tagline") ?? "";
     this.phone = this.getAttribute("phone") ?? "";
     this.logUrl = this.getAttribute("log-url") ?? "";
+    this.greeting = this.getAttribute("greeting") ?? "";
+    // A boolean attribute: present is on, whatever it says, except an explicit "false".
+    this.autostart = this.hasAttribute("autostart") && this.getAttribute("autostart") !== "false";
     const label = this.getAttribute("label") ?? `Talk to ${this.name}`;
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
@@ -336,7 +345,7 @@ class PinecallWidget extends HTMLElement {
         <footer></footer>
       </section>`;
     this.$ = (selector) => this.shadowRoot.querySelector(selector);
-    this.$(".fab").addEventListener("click", () => this.toggle());
+    this.$(".fab").addEventListener("click", () => (this.autostart ? this.start() : this.toggle()));
     this.$(".close").addEventListener("click", () => this.hide());
     this.menu();
   }
@@ -349,6 +358,28 @@ class PinecallWidget extends HTMLElement {
     } else {
       this.hide();
     }
+  }
+
+  /**
+   * `autostart`: the panel opens straight into a voice call. The microphone is asked for inside the
+   * click that opened it — the user gesture every browser requires — and let go once granted: the
+   * room asks for its own track, and the answer is already remembered. A refusal leaves the menu,
+   * with the reason, so chat is still one click away.
+   */
+  async start() {
+    const panel = this.$(".panel");
+    if (!panel.hidden) return this.hide();
+    panel.hidden = false;
+    this.dispatchEvent(new CustomEvent("pinecall:open"));
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+    } catch (refused) {
+      this.menu();
+      this.notice(`The microphone was not allowed (${refused.name ?? "refused"}): chat instead, or allow it and try again.`);
+      return;
+    }
+    await this.conversation("talk");
   }
 
   async hide() {
@@ -371,6 +402,7 @@ class PinecallWidget extends HTMLElement {
     this.$(".panel").classList.remove("wide");
     const body = this.$(".body");
     body.innerHTML = `
+      ${this.greeting ? `<p class="greeting"></p>` : ""}
       ${this.phone ? `<button class="option call"><span class="icon">${ICONS.phone}</span>
         <span><b>Call us</b><span>${this.phone}</span></span></button>` : ""}
       <button class="option talk"><span class="icon">${ICONS.mic}</span>
@@ -378,6 +410,9 @@ class PinecallWidget extends HTMLElement {
       <button class="option chat"><span class="icon">${ICONS.chat}</span>
         <span><b>Chat</b><span>Type, and ${this.name} answers</span></span></button>`;
     this.$("footer").innerHTML = `<span class="status">${[this.company, `${this.name} answers right away`].filter(Boolean).join(" · ")}</span>`;
+    // The greeting is the page author's words and is written as text, never as markup.
+    const greeting = body.querySelector(".greeting");
+    if (greeting) greeting.textContent = this.greeting;
     body.querySelector(".call")?.addEventListener("click", () => this.callUs());
     body.querySelector(".talk").addEventListener("click", () => this.conversation("talk"));
     body.querySelector(".chat").addEventListener("click", () => this.conversation("chat"));
@@ -446,9 +481,11 @@ class PinecallWidget extends HTMLElement {
     this.$(".panel").classList.add("wide");
     const body = this.$(".body");
     body.innerHTML = `
+      ${this.greeting ? `<p class="greeting"></p>` : ""}
       <span class="status">Connecting…</span>
       <ul class="lines"></ul>
       ${scope === "chat" ? `<div class="row"><input type="text" placeholder="Type a message and press Enter" autocomplete="off"><button class="btn send">Send</button></div>` : ""}`;
+    body.querySelector(".greeting")?.replaceChildren(document.createTextNode(this.greeting));
     this.footer(scope === "talk" ? "Hang up" : "End chat");
     if (scope === "chat") {
       const input = body.querySelector("input");
@@ -535,7 +572,14 @@ class PinecallWidget extends HTMLElement {
     await room.connect(minted.server_url, minted.participant_token);
     // The log is asked for once the room is joined: the join is what makes the agent open the call.
     if (this.logUrl) this.transcript.follow(this.log(`call=${encodeURIComponent(minted.call)}`));
-    if (scope === "talk") await room.localParticipant.setMicrophoneEnabled(true);
+    // Once the call is up the agent speaks for itself: the page's greeting was the line before it.
+    this.$(".body .greeting")?.remove();
+    if (scope === "talk") {
+      await room.localParticipant.setMicrophoneEnabled(true);
+      // A browser that has not counted the click as permission to play sound yet gets a button
+      // that does: `autostart` reaches this point a few awaits after the gesture that opened it.
+      if (!room.canPlaybackAudio) this.notice("Tap to hear the agent", () => room.startAudio());
+    }
     this.status(scope === "talk" ? `Live. ${this.name} is listening.` : "Live.", "live");
     this.dispatchEvent(new CustomEvent("pinecall:started", { detail: { call: minted.call, scope } }));
     return minted.call;
@@ -598,6 +642,22 @@ class PinecallWidget extends HTMLElement {
     line.className = `${who}${final ? "" : " interim"}`;
     line.textContent = text;
     list.scrollTop = list.scrollHeight;
+  }
+
+  /** One line under the status: a sentence, or a button when there is something to tap. */
+  notice(text, tap) {
+    const body = this.$(".body");
+    if (!body) return;
+    const line = document.createElement(tap ? "button" : "span");
+    line.className = tap ? "btn quiet" : "status failed";
+    line.textContent = text;
+    if (tap) {
+      line.addEventListener("click", async () => {
+        await tap();
+        line.remove();
+      });
+    }
+    body.prepend(line);
   }
 
   status(text, tone = "") {
