@@ -80,7 +80,8 @@ widget shows `detail` in the panel, so pass it through. The body must not carry 
 Or no endpoint at all: set the element's `tokenProvider` property to a function
 `(scope, agent) => Promise<token JSON>` resolving to that same `{ server_url, participant_token,
 call }`, and the widget asks it instead of `token-url` — for an app that already holds a way to
-mint, or a page that holds a person's key (the Pinecall console's preview does).
+mint, or a page whose requests are already a person's (the Pinecall console's preview does: it
+mints at `POST /v1/tokens` as whoever is looking, through the gateway's page or `pinecall serve`).
 
 ```js
 document.querySelector("pinecall-widget").tokenProvider = (scope, agent) =>
