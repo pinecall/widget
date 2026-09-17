@@ -16,46 +16,108 @@ Pinecall's box). jsDelivr serves this repository too, at
                  token-url="/pinecall/token" log-url="/pinecall/log"></pinecall-widget>
 ```
 
+`index.html` in this repository is that page, pointed at the file beside it.
+
 ## The tag
 
 | attribute | | |
 |---|---|---|
 | `agent` | required | the agent's slug, as `pinecall run` prints it |
-| `token-url` | required | your token endpoint (below) |
-| `log-url` | optional | your log endpoint (below): conversations drawn from the call's own log, the telephone call live, a "show tools" toggle |
+| `token-url` | required, unless `tokenProvider` is set | your token endpoint (below) |
+| `log-url` | optional | your log endpoint (below): conversations drawn from the call's own log, the telephone call live, a "Show tools" toggle |
 | `phone` | optional | the number the agent answers; without it "Call us" is hidden |
-| `name` | optional | what the agent is called on screen |
-| `company` | optional | whose agent it is |
-| `tagline` | optional | the line under the name |
-| `label` | optional | the button's text, "Talk to <name>" |
-| `position` | optional | `bottom-right` (default), `bottom-left`, `top-right`, `top-left`, `inline` |
+| `name` | optional | what the agent is called on screen, `Assistant` when left out |
+| `company` | optional | whose agent it is, shown under the name |
+| `tagline` | optional | the line under the name, after the company |
+| `label` | optional | the button's text, `Talk to <name>` when left out |
+| `position` | optional | `bottom-right` (default), `bottom-left`, `top-right`, `top-left`, or `inline`: the button right where the tag is, in the page's own flow |
 
-Two agents on one page are two tags, each at its own position.
+The attributes are read once, when the tag is connected to the page — except `token-url`, which is
+read each time a token is asked for. Two agents on one page are two tags, each at its own position.
+
+Without `log-url`, voice and chat draw their words from LiveKit's text streams alone, "Call us"
+only shows the number, and there is no tools toggle.
 
 ## Your two endpoints
 
 The widget never holds the org's API key. Your server does, and exposes two doors; the widget
-calls them with the agent named on the tag.
+calls them with the agent named on the tag, so the same two endpoints serve every agent of the
+org. Refuse an `agent` your site does not serve.
 
-**`token-url` — `POST`, JSON `{ "agent": "<slug>", "scope": "talk" | "chat" }`.** Your server
-posts to Pinecall's `POST /v1/tokens` with `Authorization: Bearer <key>` and the body
-`{ "agent", "scope", "ttl_s": 60, "metadata": {…} }`, and answers with Pinecall's JSON as it came
-(`server_url`, `participant_token`, `call`), status and all. Refuse an `agent` your site does not
-serve. The key needs the `talk` scope.
+The key is a production key (the world it opens is the world whose agent answers) with the `talk`
+scope for the token and the `calls` scope for the log. It goes in an `Authorization: Bearer <key>`
+header and never reaches the browser.
+
+### `token-url`
+
+The widget sends:
+
+```http
+POST <token-url>
+Content-Type: application/json
+
+{ "agent": "<slug>", "scope": "talk" | "chat" }
+```
+
+`talk` for a voice call, `chat` for a written one. Your server posts to Pinecall:
+
+```http
+POST https://<gateway>/v1/tokens
+Authorization: Bearer <key>
+Content-Type: application/json
+
+{ "agent": "<slug>", "scope": "talk" | "chat", "ttl_s": 60, "metadata": { … } }
+```
+
+and answers with Pinecall's response as it came, status and body: `201` with
+`{ "server_url", "participant_token", "call" }`. `ttl_s` is optional (60 by default, 600 at most);
+`metadata` is optional and is sealed into the call: the agent reads it, and a browser may read it
+but alter none of it. On an error Pinecall answers `{ "detail": "<sentence>" }` — `404` for an agent the key's org does
+not answer on the web, `429` when the org's quota is spent, `503` when the fleet is full — and the
+widget shows `detail` in the panel, so pass it through. The body must not carry `room_name`,
+`participant_name` or `participant_metadata`: Pinecall refuses them with a `400`.
 
 Or no endpoint at all: set the element's `tokenProvider` property to a function
-`(scope, agent) => Promise<token JSON>` and the widget asks it instead — for an app that already
-holds a way to mint, or a page that holds a person's key (the Pinecall console's preview does).
+`(scope, agent) => Promise<token JSON>` resolving to that same `{ server_url, participant_token,
+call }`, and the widget asks it instead of `token-url` — for an app that already holds a way to
+mint, or a page that holds a person's key (the Pinecall console's preview does).
 
-**`log-url` — `GET`, optional.** Two queries, both with `?agent=<slug>`:
-- `&list=1` answers `{ "calls": [ { "call", "live", "from", "started_at" } ] }` — the agent's latest
-  telephone calls, from `GET /v1/agents/<agent>/sessions?limit=30`, keeping only `channel ==
-  "phone"` and cutting `from` to its last three digits (the page is public).
-- `&call=<id>` relays `GET /v1/calls/<id>/events?types=call.started,user.transcript,agent.transcript,turn.user,turn.agent,tool.call,tool.result,call.ended&after=0`
-  as `text/event-stream`, byte for byte, with buffering off. The key needs the `calls` scope.
+```js
+document.querySelector("pinecall-widget").tokenProvider = (scope, agent) =>
+  fetch("/my/mint", { method: "POST", body: JSON.stringify({ scope, agent }) }).then((r) => r.json());
+```
 
-Ready-made endpoints for plain PHP and for Laravel live with the BidFire agents:
-https://github.com/cloudacio/bidfire-agents/tree/main/plugin/server.
+### `log-url` — optional
+
+Two `GET` queries, both with `agent` added to whatever query string `log-url` already has:
+
+**`<log-url>?agent=<slug>&list=1`** — the agent's latest telephone calls. The widget polls it once a
+second while "Call us" is open, and expects `200` with:
+
+```json
+{ "calls": [ { "call": "call_…", "live": true, "from": "···169", "started_at": 1789000000.5 } ] }
+```
+
+Your server reads `GET https://<gateway>/v1/agents/<slug>/sessions?limit=30` (newest first,
+`{ "calls": [ … ] }`), keeps only the rows with `channel == "phone"`, and answers those four fields
+of each. `started_at` is Unix seconds; the widget shows the call that is `live`, or a call that
+started after "Call us" was opened. `from` is printed on the page as it comes, and the page is
+public: cut the caller's number to its last three digits.
+
+**`<log-url>?agent=<slug>&call=<id>`** — one call's log, live, as server-sent events. Your server
+relays
+
+```http
+GET https://<gateway>/v1/calls/<id>/events?types=call.started,user.transcript,agent.transcript,turn.user,turn.agent,tool.call,tool.result,call.ended&after=0
+Authorization: Bearer <key>
+Accept: text/event-stream
+```
+
+and streams the answer back byte for byte as `text/event-stream`, flushing every chunk, with
+`Cache-Control: no-cache` and buffering off (`X-Accel-Buffering: no` behind nginx). Without that
+`Accept` header Pinecall answers a JSON page instead of the stream. Each frame is
+`id: <seq>` · `event: <type>` · `data: <JSON>`, and the widget reads the entry's payload from the
+JSON's `data` field. Check that `<id>` is a call id before putting it in the URL.
 
 ## The look
 
@@ -63,26 +125,27 @@ The font is inherited from the page. Everything else is a custom property on the
 
 ```css
 pinecall-widget {
-  --pc-accent: #0f766e;       /* the button, the links, the agent's bubbles */
-  --pc-accent-soft: #f0fdfa;  /* the soft background behind them */
-  --pc-ink: #111;             /* the text */
+  --pc-accent: #0f766e;       /* the button, the links, the agent's bubbles — default #6d28d9 */
+  --pc-accent-soft: #f0fdfa;  /* the soft background behind them — default #f5f3ff */
+  --pc-ink: #111;             /* the text — default #1f2937 */
   --pc-muted: #6b7280;        /* the second line of text */
   --pc-line: #e5e7eb;         /* borders */
   --pc-radius: 14px;          /* the panel's corners */
   --pc-offset: 20px;          /* the distance from the page's edge */
-  --pc-font: Inter, sans-serif;
+  --pc-font: Inter, sans-serif; /* default: the page's own */
   --pc-font-size: 15px;
   --pc-z: 2147483000;
 }
 pinecall-widget::part(button) { border-radius: 8px; }   /* the button, outright */
-pinecall-widget::part(panel) { box-shadow: none; }
+pinecall-widget::part(panel) { box-shadow: none; }      /* the panel, outright */
 ```
 
 ## Events
 
-The tag dispatches `pinecall:open`, `pinecall:started` (`detail: {call, scope}`) and
-`pinecall:ended` (`detail: {call}`), so a page can track conversions or open the widget itself
-(`document.querySelector("pinecall-widget").toggle()`).
+The tag dispatches `pinecall:open` when the panel opens, `pinecall:started` (`detail: {call,
+scope}`) when a voice call or chat has joined, and `pinecall:ended` (`detail: {call}`) when it
+leaves, so a page can track conversions. `toggle()` opens the panel, or closes it when open:
+`document.querySelector("pinecall-widget").toggle()`.
 
 ## In React, Vue, Svelte
 
@@ -111,9 +174,10 @@ In TypeScript, declare the tag once: `declare global { namespace JSX { interface
 
 ## What is on the wire
 
-The browser talks to LiveKit with LiveKit's own client SDK, loaded from a CDN. The token your
-endpoint mints is one visit's: it opens one room for one agent and dies in sixty seconds if it is
-not used.
+The browser talks to LiveKit with LiveKit's own client SDK, loaded from jsDelivr
+(`livekit-client@2`), at the `server_url` the token names. A page with a Content Security Policy
+allows both. The token your endpoint mints is one visit's: it opens one room for one agent and
+dies when its `ttl_s` runs out if it is not used.
 
 ## Next
 
